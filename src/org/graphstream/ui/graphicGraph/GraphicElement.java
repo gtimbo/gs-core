@@ -243,6 +243,9 @@ public abstract class GraphicElement extends AbstractElement {
 				} else if (attribute.equals("ui.selected")) {
 					style.pushEventFor(this, "selected");
 					mygraph.graphChanged = true;
+				} else if (attribute.equals("ui.hovered")) {
+					style.pushEventFor(this, "hovered");
+					mygraph.graphChanged = true;
 				} else if (attribute.equals("ui.color")) {
 					style.pushElementAsDynamic(this);
 					mygraph.graphChanged = true;
@@ -284,6 +287,9 @@ public abstract class GraphicElement extends AbstractElement {
 					mygraph.graphChanged = true;
 				} else if (attribute.equals("ui.selected")) {
 					style.popEventFor(this, "selected");
+					mygraph.graphChanged = true;
+				} else if (attribute.equals("ui.hovered")) {
+					style.popEventFor(this, "hovered");
 					mygraph.graphChanged = true;
 				} else if (attribute.equals("ui.color")) {
 					style.popElementAsDynamic(this);
