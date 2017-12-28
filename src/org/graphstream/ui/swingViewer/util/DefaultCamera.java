@@ -48,6 +48,7 @@ import org.graphstream.ui.view.Camera;
 import org.graphstream.ui.view.util.CubicCurve;
 
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
@@ -372,12 +373,12 @@ public class DefaultCamera implements Camera
         for (Node n : graph) {
             GraphicNode node = (GraphicNode) n;
 
-            if (nodeContains(node, x, y))
+            if (!node.hidden && nodeContains(node, x, y))
                 return node;
         }
 
         for (GraphicSprite sprite : graph.spriteSet()) {
-            if (spriteContains(sprite, x, y))
+            if (!sprite.hidden && spriteContains(sprite, x, y))
                 return sprite;
         }
 
@@ -405,12 +406,12 @@ public class DefaultCamera implements Camera
         List<GraphicElement> elts = new ArrayList<GraphicElement>();
 
         for (Node node : graph) {
-            if (isNodeIn((GraphicNode) node, x1, y1, x2, y2))
+            if (!((GraphicNode)node).hidden && isNodeIn((GraphicNode) node, x1, y1, x2, y2))
                 elts.add((GraphicNode) node);
         }
 
         for (GraphicSprite sprite : graph.spriteSet()) {
-            if (isSpriteIn(sprite, x1, y1, x2, y2))
+            if (!sprite.hidden && isSpriteIn(sprite, x1, y1, x2, y2))
                 elts.add(sprite);
         }
 
@@ -526,34 +527,37 @@ public class DefaultCamera implements Camera
         double padYgu = getPaddingYgu() * 2;
         double padXpx = getPaddingXpx() * 2;
         double padYpx = getPaddingYpx() * 2;
+		double viewWidth = metrics.viewport[2];
+		double viewHeight = metrics.viewport[3];
+		double graphWidth = metrics.size.data[0];
+		double graphHeight = metrics.size.data[1];
 
-        sx = (metrics.viewport[2] - padXpx) / (metrics.size.data[0] + padXgu); // Ratio
-        // along
-        // X
-        sy = (metrics.viewport[3] - padYpx) / (metrics.size.data[1] + padYgu); // Ratio
-        // along
-        // Y
-        tx = metrics.lo.x + (metrics.size.data[0] / 2); // Centre of graph in X
-        ty = metrics.lo.y + (metrics.size.data[1] / 2); // Centre of graph in Y
-        
+		sx = (viewWidth - padXpx) / (graphWidth + padXgu); // Ratio along X
+		sy = (viewHeight - padYpx) / (graphHeight + padYgu); // Ratio along Y
+        tx = metrics.lo.x + (graphWidth / 2); // Centre of graph in X
+        ty = metrics.lo.y + (graphHeight / 2); // Centre of graph in Y
+
         if (sx > sy) // The least ratio.
             sx = sy;
         else
             sy = sx;
 
-        g2.translate(metrics.viewport[2] / 2, metrics.viewport[3] / 2);
+        Rectangle clipBounds = g2.getClipBounds();
+        g2.translate(viewWidth / 2, viewHeight / 2);
         if (rotation != 0)
             g2.rotate(rotation / (180 / Math.PI));
         g2.scale(sx, -sy);
         g2.translate(-tx, -ty);
 
-        Tx = g2.getTransform();
-        xT = new AffineTransform(Tx);
-        try {
-            xT.invert();
-        } catch (NoninvertibleTransformException e) {
-            logger.warning("Cannot inverse gu2px matrix.");
-        }
+        if ((Tx == null) || ((clipBounds.width == (int)viewWidth) && (clipBounds.height == (int)viewHeight))) {
+			Tx = g2.getTransform();
+			xT = new AffineTransform(Tx);
+			try {
+				xT.invert();
+			} catch (NoninvertibleTransformException e) {
+				logger.warning("Cannot inverse gu2px matrix.");
+			}
+		}
 
         zoom = 1;
 
@@ -582,9 +586,11 @@ public class DefaultCamera implements Camera
             : metrics.size.data[0];
         double gh = gviewport != null ? gviewport[3] - gviewport[1]
             : metrics.size.data[1];
+		double viewWidth = metrics.viewport[2];
+		double viewHeight = metrics.viewport[3];
 
-        sx = (metrics.viewport[2] - padXpx) / ((gw + padXgu) * zoom);
-        sy = (metrics.viewport[3] - padYpx) / ((gh + padYgu) * zoom);
+		sx = (viewWidth - padXpx) / ((gw + padXgu) * zoom);
+		sy = (viewHeight - padYpx) / ((gh + padYgu) * zoom);
         tx = center.x;
         ty = center.y;
 
@@ -593,24 +599,31 @@ public class DefaultCamera implements Camera
         else
             sy = sx;
 
-        g2.translate((metrics.viewport[2] / 2), (metrics.viewport[3] / 2));
+        Rectangle clipBounds = g2.getClipBounds();
+        g2.translate((viewWidth / 2), (viewHeight / 2));
         if (rotation != 0)
             g2.rotate(rotation / (180 / Math.PI));
         g2.scale(sx, -sy);
         g2.translate(-tx, -ty);
 
-        Tx = g2.getTransform();
-        xT = new AffineTransform(Tx);
-        try {
-            xT.invert();
-        } catch (NoninvertibleTransformException e) {
-            logger.log(Level.WARNING, "Cannot inverse gu2px matrix.", e);
-        }
+        // Only update the transform if we're painting the entire viewport, otherwise we'll begin to
+		if ((Tx == null) || ((clipBounds.width == (int)viewWidth) && (clipBounds.height == (int)viewHeight)))
+		{
+			Tx = g2.getTransform();
+			xT = new AffineTransform(Tx);
+			try
+			{
+				xT.invert();
+			} catch (NoninvertibleTransformException e)
+			{
+				logger.log(Level.WARNING, "Cannot inverse gu2px matrix.", e);
+			}
+		}
 
         metrics.setRatioPx2Gu(sx);
 
-        double w2 = (metrics.viewport[2] / sx) / 2;
-        double h2 = (metrics.viewport[3] / sx) / 2;
+        double w2 = (viewWidth / sx) / 2;
+        double h2 = (viewHeight / sx) / 2;
 
         metrics.loVisible.set(center.x - w2, center.y - h2);
         metrics.hiVisible.set(center.x + w2, center.y + h2);
