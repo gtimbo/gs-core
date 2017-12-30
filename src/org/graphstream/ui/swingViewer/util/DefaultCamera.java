@@ -31,6 +31,19 @@
  */
 package org.graphstream.ui.swingViewer.util;
 
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.NoninvertibleTransformException;
+import java.awt.geom.Point2D;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.graphstream.graph.Node;
 import org.graphstream.ui.geom.Point2;
 import org.graphstream.ui.geom.Point3;
@@ -46,19 +59,6 @@ import org.graphstream.ui.graphicGraph.stylesheet.StyleConstants.Units;
 import org.graphstream.ui.graphicGraph.stylesheet.Values;
 import org.graphstream.ui.view.Camera;
 import org.graphstream.ui.view.util.CubicCurve;
-
-import java.awt.Graphics2D;
-import java.awt.Rectangle;
-import java.awt.geom.AffineTransform;
-import java.awt.geom.NoninvertibleTransformException;
-import java.awt.geom.Point2D;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  * Define how the graph is viewed.
@@ -119,7 +119,7 @@ public class DefaultCamera implements Camera
     protected double zoom;
 
     /**
-     * The graph-space -> pixel-space transformation.
+     * The graph-space -> pixel-space transformation for the current graphics object.
      */
     protected AffineTransform Tx = new AffineTransform();
 
@@ -128,10 +128,18 @@ public class DefaultCamera implements Camera
      */
     protected AffineTransform xT;
 
+
+    /**
+     * The graph-space -> pixel-space transformation for the entire viewport.
+     */
+	protected AffineTransform viewportTx;
+	protected AffineTransform viewportXt;
+
+
     /**
      * The previous affine transform.
      */
-    protected AffineTransform oldTx;
+    protected AffineTransform previousGraphicTx;
 
     /**
      * The rotation angle.
@@ -481,8 +489,8 @@ public class DefaultCamera implements Camera
      *            The Swing graphics to change.
      */
     public void pushView(GraphicGraph graph, Graphics2D g2) {
-        if (oldTx == null) {
-            oldTx = g2.getTransform(); // Backup the Swing transform.
+        if (previousGraphicTx == null) {
+            previousGraphicTx = g2.getTransform(); // Backup the Swing transform.
 
             if (autoFit)
                 autoFitView(g2);
@@ -499,7 +507,8 @@ public class DefaultCamera implements Camera
         checkVisibility(graph);
     }
 
-    /**
+
+	/**
      * Restore the transform that was used before
      * {@link #pushView(GraphicGraph, Graphics2D)} is used.
      *
@@ -507,11 +516,33 @@ public class DefaultCamera implements Camera
      *            The Swing graphics to restore.
      */
     public void popView(Graphics2D g2) {
-        if (oldTx != null) {
-            g2.setTransform(oldTx); // Set back the old Swing Transform.
-            oldTx = null;
+        if (previousGraphicTx != null) {
+            g2.setTransform(previousGraphicTx); // Set back the old Swing Transform.
+            previousGraphicTx = null;
+
+            // Restore the viewport transform
+            if (viewportTx != null) {
+                Tx = viewportTx;
+                xT = viewportXt;
+            }
         }
     }
+
+
+    /**
+     * Updates the entire viewport transform objects if the given clip size equals the viewport size.
+     *
+     * @param aClipBounds the non-transformed clip that is being rendered
+     * @param aTx         the transform to store as the viewport transform
+     * @param aXt         the inverse transform
+     */
+    protected void updateViewportTx(Rectangle aClipBounds, AffineTransform aTx, AffineTransform aXt) {
+        if ((aClipBounds.width == (int)metrics.viewport[2]) && (aClipBounds.height == (int)metrics.viewport[3])) {
+            viewportTx = aTx;
+            viewportXt = aXt;
+        }
+    }
+
 
     /**
      * Compute a transformation matrix that pass from graph units (user space)
@@ -542,22 +573,22 @@ public class DefaultCamera implements Camera
         else
             sy = sx;
 
-        Rectangle clipBounds = g2.getClipBounds();
+        Rectangle originalClipBounds = g2.getClipBounds();
         g2.translate(viewWidth / 2, viewHeight / 2);
         if (rotation != 0)
             g2.rotate(rotation / (180 / Math.PI));
         g2.scale(sx, -sy);
         g2.translate(-tx, -ty);
 
-        if ((Tx == null) || ((clipBounds.width == (int)viewWidth) && (clipBounds.height == (int)viewHeight))) {
-			Tx = g2.getTransform();
-			xT = new AffineTransform(Tx);
-			try {
-				xT.invert();
-			} catch (NoninvertibleTransformException e) {
-				logger.warning("Cannot inverse gu2px matrix.");
-			}
+        Tx = g2.getTransform();
+        xT = new AffineTransform(Tx);
+        try {
+			xT.invert();
+		} catch (NoninvertibleTransformException e) {
+			logger.warning("Cannot inverse gu2px matrix.");
 		}
+
+		updateViewportTx(originalClipBounds, Tx, xT);
 
         zoom = 1;
 
@@ -599,28 +630,26 @@ public class DefaultCamera implements Camera
         else
             sy = sx;
 
-        Rectangle clipBounds = g2.getClipBounds();
+        Rectangle originalClipBounds = g2.getClipBounds();
         g2.translate((viewWidth / 2), (viewHeight / 2));
         if (rotation != 0)
             g2.rotate(rotation / (180 / Math.PI));
         g2.scale(sx, -sy);
         g2.translate(-tx, -ty);
 
-        // Only update the transform if we're painting the entire viewport, otherwise we'll begin to
-		if ((Tx == null) || ((clipBounds.width == (int)viewWidth) && (clipBounds.height == (int)viewHeight)))
+		Tx = g2.getTransform();
+		xT = new AffineTransform(Tx);
+		try
 		{
-			Tx = g2.getTransform();
-			xT = new AffineTransform(Tx);
-			try
-			{
-				xT.invert();
-			} catch (NoninvertibleTransformException e)
-			{
-				logger.log(Level.WARNING, "Cannot inverse gu2px matrix.", e);
-			}
+			xT.invert();
+		} catch (NoninvertibleTransformException e)
+		{
+			logger.log(Level.WARNING, "Cannot inverse gu2px matrix.", e);
 		}
 
-        metrics.setRatioPx2Gu(sx);
+        updateViewportTx(originalClipBounds, Tx, xT);
+
+		metrics.setRatioPx2Gu(sx);
 
         double w2 = (viewWidth / sx) / 2;
         double h2 = (viewHeight / sx) / 2;
